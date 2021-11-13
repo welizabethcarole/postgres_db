@@ -1,9 +1,9 @@
+// import postgres crate
 extern crate postgres;
 
-use postgres::{Client, NoTls, Error};
-use std::collections::HashMap;
-
 use hello::ThreadPool;
+use postgres::{Client, Error, NoTls};
+use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::net::TcpListener;
@@ -11,32 +11,46 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 
+// struct for initial table schema
+// author is an example table
+// not needed to create a table, but used to insert data
+
 struct Author {
     _id: i32,
     name: String,
-    country: String
+    country: String,
 }
 
-
 fn main() -> Result<(), Error> {
-    let mut client = Client::connect("postgresql://postgres:NO6ekYSmkv4kSG9wOLUieSFPw@50.116.20.126:48278/test", NoTls)?;
-    
-    client.batch_execute("
+    /*connect to postgres test db with credentials*/
+    let mut client = Client::connect(
+        "postgresql://postgres:NO6ekYSmkv4kSG9wOLUieSFPw@50.116.20.126:48278/test",
+        NoTls,
+    )?;
+
+    /* create 'author' table */
+    client.batch_execute(
+        "
         CREATE TABLE IF NOT EXISTS author (
             id              SERIAL PRIMARY KEY,
             name            VARCHAR NOT NULL,
             country         VARCHAR NOT NULL
             )
-    ")?;
+    ",
+    )?;
 
-    client.batch_execute("
+    /* create 'book' table */
+    client.batch_execute(
+        "
         CREATE TABLE IF NOT EXISTS book  (
             id              SERIAL PRIMARY KEY,
             title           VARCHAR NOT NULL,
             author_id       INTEGER NOT NULL REFERENCES author
             )
-    ")?;
+    ",
+    )?;
 
+    /* create hashmap for inserting data */
     let mut authors = HashMap::new();
     authors.insert(String::from("Chinua Achebe"), "Nigeria");
     authors.insert(String::from("Rabindranath Tagore"), "India");
@@ -46,15 +60,16 @@ fn main() -> Result<(), Error> {
         let author = Author {
             _id: 0,
             name: key.to_string(),
-            country: value.to_string()
+            country: value.to_string(),
         };
 
         client.execute(
-                "INSERT INTO author (name, country) VALUES ($1, $2)",
-                &[&author.name, &author.country],
+            "INSERT INTO author (name, country) VALUES ($1, $2)",
+            &[&author.name, &author.country],
         )?;
     }
 
+    /* pull data from author table*/
     for row in client.query("SELECT id, name, country FROM author", &[])? {
         let author = Author {
             _id: row.get(0),
@@ -69,13 +84,13 @@ fn main() -> Result<(), Error> {
     client.batch_execute(
         "
         DROP TABLE IF EXISTS author CASCADE
-        "
+        ",
     )?;
 
     client.batch_execute(
         "
         DROP TABLE IF EXISTS book RESTRICT
-        "
+        ",
     )?;
 
     // create database
@@ -92,30 +107,27 @@ fn main() -> Result<(), Error> {
         "
     )?;*/
 
+    /* beginning of server code */
+
     /* listening for TCP connections at 127.00.1:7878
-       7878 is Rust typed out on a telephone. */
+    7878 is Rust typed out on a telephone. */
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     /* threadpool interface
-       We use ThreadPool::new to create a new thread pool with a configurable number of threads(workers) */
+    We use ThreadPool::new to create a new thread pool with a configurable number of threads(workers) */
     let pool = ThreadPool::new(4);
-   
-       /* shut down process after xx requests */
+
+    /* shut down process after xx requests */
     for stream in listener.incoming().take(4) {
         let stream = stream.unwrap();
-   
         pool.execute(|| {
             handle_connection(stream);
         });
     }
-   
     println!("Shutting down.");
 
-
     Ok(())
-
 }
-
 
 fn handle_connection(mut stream: TcpStream) {
     /* buffer holds the data that is being read in */
@@ -127,11 +139,10 @@ fn handle_connection(mut stream: TcpStream) {
 
     /* for simulating a slow request */
     let sleep = b"GET /sleep HTTP/1.1\r\n";
-    
     /* 127.0.0.1:7878 */
     let (status_line, filename) = if buffer.starts_with(get) {
         ("HTTP/1.1 200 OK", "hello.html")
-    } 
+    }
     /* 127.0.0.1:7878/sleep; waits 5 seconds to respond */
     else if buffer.starts_with(sleep) {
         thread::sleep(Duration::from_secs(5));
@@ -162,7 +173,6 @@ fn handle_connection(mut stream: TcpStream) {
         /* error page, loads 404.html */
         let status_line = "HTTP/1.1 404 NOT FOUND";
         let contents = fs::read_to_string("404.html").unwrap();
-
 
         let response = format!(
             "{}\r\nContent-Length: {}\r\n\r\n{}",
